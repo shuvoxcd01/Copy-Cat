@@ -18,6 +18,21 @@ dependencies = [
 
 [project.optional-dependencies]
 replay = ["opencv-python"]
+test = ["pytest", "pytest-cov"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+xfail_strict = true
+
+[tool.coverage.run]
+source = ["copy_cat"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+# The __main__ blocks are manual demos that drive the real screen and keyboard.
+exclude_also = ['if __name__ == "__main__":']
