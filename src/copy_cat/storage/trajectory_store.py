@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence, Union
 
 import numpy as np
 
+from copy_cat.utils.observation_preprocessor import ObservationPreprocessor
 from copy_cat.utils.trajectory import Trajectory
 
 META_FILE = "meta.json"
@@ -16,6 +17,10 @@ OBSERVATIONS_FILE = "observations.npy"
 
 # Used for playback only, when an episode carries neither timestamps nor a recorded rate.
 DEFAULT_FPS = 10.0
+
+# Playback only: the grey line drawn between the frames of a stacked observation.
+TILE_SEPARATOR = 2
+TILE_SEPARATOR_VALUE = 128
 
 
 def frame_delays(
@@ -186,12 +191,20 @@ class TrajectoryStore:
         loop: bool = False,
         overlay: bool = True,
         window: Optional[str] = None,
+        is_framestacked: bool = False,
     ) -> None:
         """Replay an episode in a window, with the recorded action drawn on each frame.
 
         Playback follows the recorded timestamps so gaps left by stripped no-op steps
         are preserved; fps forces a constant rate instead, and speed scales either.
         Press q or Esc to quit, space to pause and resume.
+
+        is_framestacked says the observations carry a stack of frames on their last axis -
+        (H, W, S) when the frames are grayscale, (H, W, C, S) when they have channels -
+        and draws the stack's frames side by side, oldest first, so the history an agent
+        sees is visible. It is not inferred, because a stack of three grayscale frames and
+        one RGB frame are the same shape. Float observations, such as those a pipeline
+        ending in normalize produces, are read as spanning [0, 1] and shown as uint8.
         """
         cv2 = _import_cv2()
 
@@ -227,7 +240,7 @@ class TrajectoryStore:
             while True:
                 for index, step in enumerate(steps):
                     started = time.perf_counter()
-                    frame = _to_bgr(frames[index])
+                    frame = _to_display(frames[index], stacked=is_framestacked)
 
                     if scale is not None and scale != 1.0:
                         frame = cv2.resize(
@@ -244,6 +257,9 @@ class TrajectoryStore:
                             action=step.get("action"),
                             action_names=action_names,
                         )
+
+                        if is_framestacked:
+                            _draw_stack_labels(cv2, frame, count=frames.shape[-1])
 
                     cv2.imshow(window, frame)
 
@@ -510,13 +526,81 @@ def _import_cv2():
     return cv2
 
 
+def _to_display(frame: np.ndarray, stacked: bool = False) -> np.ndarray:
+    """Turn a stored observation into an image OpenCV can show.
+
+    A stacked observation becomes one image holding its frames side by side, oldest
+    first, so a whole stack is watched in a single window.
+    """
+    if not stacked:
+        return _to_bgr(_to_viewable(frame))
+
+    # Three channels throughout, so tiles of any kind join into one image and the
+    # overlay's light-on-dark text draws the same way it does on a plain recording.
+    tiles = [
+        _to_bgr(ObservationPreprocessor.to_rgb(_to_viewable(tile)))
+        for tile in _split_stack(frame)
+    ]
+
+    return _tile(tiles)
+
+
+def _split_stack(frame: np.ndarray) -> List[np.ndarray]:
+    """Split a stacked observation into its frames, oldest first.
+
+    The stack always sits on the last axis, so one rule covers a grayscale stack and a
+    channelled one alike.
+    """
+    if frame.ndim not in (3, 4):
+        raise ValueError(
+            f"A stacked observation must be (H, W, S) or (H, W, C, S), got shape "
+            f"{frame.shape}. Pass is_framestacked=False for unstacked observations."
+        )
+
+    return [frame[..., index] for index in range(frame.shape[-1])]
+
+
+def _to_viewable(frame: np.ndarray) -> np.ndarray:
+    """Bring an observation back to uint8, so a preprocessed one is still watchable.
+
+    Float frames are read as spanning [0, 1], which is what normalize produces.
+    """
+    if frame.dtype == np.uint8:
+        return frame
+
+    return ObservationPreprocessor.to_uint8(np.asarray(frame))
+
+
 def _to_bgr(frame: np.ndarray) -> np.ndarray:
     """Return a writable copy of a stored frame in the channel order OpenCV expects."""
     if frame.ndim == 3 and frame.shape[2] == 3:
         # Observations are stored RGB; this undoes the conversion done on capture.
-        return np.ascontiguousarray(frame[:, :, ::-1])
+        frame = frame[:, :, ::-1]
 
-    return np.ascontiguousarray(frame)
+    # A copy rather than a view, because stored frames are memory-mapped read-only and
+    # the overlay is drawn into the frame in place.
+    return np.array(frame, order="C")
+
+
+def _tile(images: Sequence[np.ndarray]) -> np.ndarray:
+    """Join equally sized images into one row, separated by a thin grey line."""
+    images = list(images)
+
+    if len(images) == 1:
+        return images[0]
+
+    height, _, channels = images[0].shape
+    separator = np.full(
+        (height, TILE_SEPARATOR, channels), TILE_SEPARATOR_VALUE, dtype=images[0].dtype
+    )
+
+    row = [images[0]]
+
+    for image in images[1:]:
+        row.append(separator)
+        row.append(image)
+
+    return np.ascontiguousarray(np.concatenate(row, axis=1))
 
 
 def _draw_overlay(
@@ -535,30 +619,59 @@ def _draw_overlay(
         f"action {action}: {_action_label(action, action_names)}",
     ]
 
-    height = frame.shape[0]
-    font_scale = max(0.4, min(1.2, height / 720))
+    font_scale = _font_scale(frame)
     line_height = int(30 * font_scale)
 
-    # Dark outline under light text, so it stays readable over any frame.
+    for number, text in enumerate(lines, start=1):
+        origin = (int(10 * font_scale), line_height * number)
+        _put_text(cv2, frame, text, origin, font_scale)
+
+
+def _draw_stack_labels(cv2, frame: np.ndarray, count: int) -> None:
+    """Caption each frame of a tiled stack with its age, in place.
+
+    The tiles are equally wide, so their positions follow from the count alone and stay
+    right whether or not the image was scaled.
+    """
+    if count < 2:
+        return
+
+    font_scale = _font_scale(frame)
+    height, width = frame.shape[0], frame.shape[1]
+    tile_width = width / count
+    baseline = height - int(8 * font_scale)
+
+    for position in range(count):
+        age = count - 1 - position
+        text = "t" if age == 0 else f"t-{age}"
+        origin = (int(position * tile_width + 5 * font_scale), baseline)
+
+        _put_text(cv2, frame, text, origin, font_scale)
+
+
+def _font_scale(frame: np.ndarray) -> float:
+    """Size the overlay text to the image it is drawn on."""
+    return max(0.4, min(1.2, frame.shape[0] / 720))
+
+
+def _put_text(cv2, frame: np.ndarray, text: str, origin, font_scale: float) -> None:
+    """Write light text with a dark outline, so it stays readable over any frame."""
     strokes = (
         ((0, 0, 0), max(2, int(4 * font_scale))),
         ((255, 255, 255), max(1, int(2 * font_scale))),
     )
 
-    for number, text in enumerate(lines, start=1):
-        origin = (int(10 * font_scale), line_height * number)
-
-        for color, thickness in strokes:
-            cv2.putText(
-                frame,
-                text,
-                origin,
-                cv2.FONT_HERSHEY_SIMPLEX,
-                font_scale,
-                color,
-                thickness,
-                cv2.LINE_AA,
-            )
+    for color, thickness in strokes:
+        cv2.putText(
+            frame,
+            text,
+            origin,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            font_scale,
+            color,
+            thickness,
+            cv2.LINE_AA,
+        )
 
 
 def _action_label(action: Any, action_names: Optional[Sequence[str]]) -> str:
