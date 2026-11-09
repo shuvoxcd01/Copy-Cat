@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 
 import numpy as np
@@ -479,3 +480,189 @@ class TestFrameDelays:
     def test_rejects_non_positive_rates(self, kwargs):
         with pytest.raises(ValueError):
             frame_delays([0.0, 0.1], **kwargs)
+
+
+class TestDamagedEpisodes:
+    def test_missing_observations_file_is_reported_on_load(self, tmp_path):
+        store = TrajectoryStore(tmp_path)
+        store.save(make_trajectory(steps=2), name="run_01")
+        (tmp_path / "run_01" / OBSERVATIONS_FILE).unlink()
+
+        with pytest.raises(FileNotFoundError, match=OBSERVATIONS_FILE):
+            store.load("run_01")
+
+    def test_missing_observations_file_is_reported_on_play(self, tmp_path, monkeypatch):
+        store = TrajectoryStore(tmp_path)
+        store.save(make_trajectory(steps=2), name="run_01")
+        (tmp_path / "run_01" / OBSERVATIONS_FILE).unlink()
+        fake = FakeCv2()
+        monkeypatch.setattr(trajectory_store, "_import_cv2", lambda: fake)
+
+        with pytest.raises(FileNotFoundError, match=OBSERVATIONS_FILE):
+            store.play("run_01")
+
+        assert fake.windows == []
+
+    def test_corrupt_steps_name_the_line(self, tmp_path):
+        store = TrajectoryStore(tmp_path)
+        store.save(make_trajectory(steps=2), name="run_01")
+        steps_file = tmp_path / "run_01" / STEPS_FILE
+        steps_file.write_text(steps_file.read_text() + "{not json\n")
+
+        with pytest.raises(ValueError, match="corrupt at line 3"):
+            store.load("run_01")
+
+    def test_blank_lines_in_steps_are_skipped(self, tmp_path):
+        store = TrajectoryStore(tmp_path)
+        store.save(make_trajectory(steps=2), name="run_01")
+        steps_file = tmp_path / "run_01" / STEPS_FILE
+        lines = steps_file.read_text().splitlines()
+        steps_file.write_text(lines[0] + "\n\n   \n" + lines[1] + "\n\n")
+
+        assert store.load("run_01").get_trajectory_length() == 2
+
+
+class TestEdgeCases:
+    def test_list_of_a_removed_root_is_empty(self, tmp_path):
+        store = TrajectoryStore(tmp_path / "store")
+        (tmp_path / "store").rmdir()
+
+        assert store.list() == []
+        assert len(store) == 0
+
+    def test_container_protocol_and_repr(self, tmp_path):
+        store = TrajectoryStore(tmp_path)
+        store.save(make_trajectory(steps=1), name="b")
+        store.save(make_trajectory(steps=1), name="a")
+
+        assert list(store) == ["a", "b"]
+        assert "a" in store
+        assert "missing" not in store
+        assert 3 not in store
+        assert repr(store) == f"TrajectoryStore(root={str(tmp_path)!r}, episodes=2)"
+
+    def test_existing_root_is_accepted_without_create(self, tmp_path):
+        assert TrajectoryStore(tmp_path, create=False).list() == []
+
+    def test_rejects_a_non_array_first_step(self, tmp_path):
+        store = TrajectoryStore(tmp_path)
+        trajectory = Trajectory()
+        trajectory.record_step(state=[[1, 2]], action=0, reward=None)
+
+        with pytest.raises(TypeError, match="at step 0"):
+            store.save(trajectory, name="bad")
+
+    @pytest.mark.skipif(os.altsep is None, reason="only Windows has an alternative separator")
+    def test_rejects_the_alternative_separator(self, tmp_path):
+        with pytest.raises(ValueError, match="plain directory name"):
+            TrajectoryStore(tmp_path).path_for(f"a{os.altsep}b")
+
+    def test_rejects_a_non_array_after_the_first_step(self, tmp_path):
+        store = TrajectoryStore(tmp_path)
+        trajectory = make_trajectory(steps=2)
+        trajectory.record_step(state=[[1, 2]], action=0, reward=None)
+
+        with pytest.raises(TypeError, match="at step 2"):
+            store.save(trajectory, name="bad")
+
+        assert store.list() == []
+
+    def test_numpy_bools_are_stored_as_bools(self, tmp_path):
+        store = TrajectoryStore(tmp_path)
+        trajectory = Trajectory()
+        trajectory.record_step(
+            state=np.zeros((1, 1, 3), dtype=np.uint8), action=0, done=np.bool_(True)
+        )
+
+        store.save(trajectory, name="flags")
+
+        assert store.load("flags").additional_info[0]["done"] is True
+
+    def test_metadata_and_tuple_action_names_are_stored(self, tmp_path):
+        store = TrajectoryStore(tmp_path)
+        store.save(make_trajectory(steps=1), name="run_01", metadata={"game": "demo", 1: (2, 3)})
+
+        info = store.info("run_01")
+
+        assert info["metadata"] == {"game": "demo", "1": [2, 3]}
+        assert info["action_names"] == ["w", "a", "s"]
+
+    @pytest.mark.parametrize(
+        "timestamps",
+        [
+            [0.5, 0.5],  # no time passed
+            [0.0, None, None],  # only one usable stamp
+            [True, False],  # bools are not timestamps
+        ],
+    )
+    def test_fps_is_not_inferred_from_unusable_timestamps(self, tmp_path, timestamps):
+        store = TrajectoryStore(tmp_path)
+        trajectory = Trajectory()
+
+        for stamp in timestamps:
+            trajectory.record_step(
+                state=np.zeros((1, 1, 3), dtype=np.uint8), action=0, timestamp=stamp
+            )
+
+        store.save(trajectory, name="run_01")
+
+        assert store.info("run_01")["fps"] is None
+
+    def test_grayscale_frames_play_unchanged(self, tmp_path, monkeypatch):
+        store = TrajectoryStore(tmp_path)
+        trajectory = Trajectory()
+        gray = np.arange(4, dtype=np.uint8).reshape(2, 2)
+        trajectory.record_step(state=gray, action=0, timestamp=0.0)
+        store.save(trajectory, name="gray")
+        fake = FakeCv2()
+        monkeypatch.setattr(trajectory_store, "_import_cv2", lambda: fake)
+
+        store.play("gray", overlay=False)
+
+        assert np.array_equal(fake.shown[0], gray)
+
+    def test_space_pause_can_be_quit(self, tmp_path, monkeypatch):
+        store = TrajectoryStore(tmp_path)
+        store.save(make_trajectory(steps=3), name="run_01")
+        fake = FakeCv2(keys=[ord(" "), -1, 27])
+        monkeypatch.setattr(trajectory_store, "_import_cv2", lambda: fake)
+
+        store.play("run_01")
+
+        assert len(fake.shown) == 1
+        assert fake.destroyed == ["copy-cat: run_01"]
+
+    def test_custom_window_name(self, tmp_path, monkeypatch):
+        store = TrajectoryStore(tmp_path)
+        store.save(make_trajectory(steps=1), name="run_01")
+        fake = FakeCv2()
+        monkeypatch.setattr(trajectory_store, "_import_cv2", lambda: fake)
+
+        store.play("run_01", window="review")
+
+        assert fake.windows == ["review"]
+        assert fake.destroyed == ["review"]
+
+
+class TestActionLabel:
+    @pytest.mark.parametrize(
+        "action, names, expected",
+        [
+            (0, ("w",), "noop"),
+            (1, ("w", "a"), "w"),
+            (np.int64(2), ("w", "a"), "a"),
+            (3, ("w", "a"), "3"),  # out of range falls back to the index
+            (1, None, "1"),
+            ("jump", ("w",), "jump"),  # non-numeric actions are shown as-is
+            (None, ("w",), "None"),
+        ],
+    )
+    def test_labels(self, action, names, expected):
+        assert trajectory_store._action_label(action, names) == expected
+
+
+def test_import_cv2_returns_the_module_when_installed(monkeypatch):
+    sentinel = object()
+    monkeypatch.setitem(sys.modules, "cv2", sentinel)
+
+    assert trajectory_store._import_cv2() is sentinel
