@@ -451,6 +451,112 @@ class TestPlay:
         assert store.load("run_01").get_trajectory_length() == 3
 
 
+class TestPlayFramestacked:
+    """is_framestacked draws the frames of a stacked observation side by side."""
+
+    def use(self, monkeypatch, fake):
+        monkeypatch.setattr(trajectory_store, "_import_cv2", lambda: fake)
+
+        return fake
+
+    def tiles(self, shown, count, width):
+        """Cut a shown image back into the tiles it was built from."""
+        step = width + trajectory_store.TILE_SEPARATOR
+
+        return [shown[:, index * step : index * step + width] for index in range(count)]
+
+    def test_grayscale_stack_is_tiled_oldest_first(self, tmp_path, monkeypatch):
+        store = TrajectoryStore(tmp_path)
+        store.save(make_trajectory(steps=2, shape=(4, 4, 3)), name="stacked")
+        fake = self.use(monkeypatch, FakeCv2())
+
+        store.play("stacked", is_framestacked=True, overlay=False)
+
+        original = store.load("stacked")
+
+        assert len(fake.shown) == 2
+
+        for index, shown in enumerate(fake.shown):
+            # Three 4x4 tiles, with a separator column between them.
+            assert shown.shape == (4, 4 * 3 + 2 * trajectory_store.TILE_SEPARATOR, 3)
+
+            stack = np.asarray(original.get_state(index))
+
+            for position, tile in enumerate(self.tiles(shown, count=3, width=4)):
+                # A grayscale tile is repeated across the three channels.
+                assert np.array_equal(tile[:, :, 0], stack[:, :, position])
+                assert np.array_equal(tile[:, :, 2], stack[:, :, position])
+
+    def test_channelled_stack_splits_on_the_last_axis(self, tmp_path, monkeypatch):
+        store = TrajectoryStore(tmp_path)
+        store.save(make_trajectory(steps=1, shape=(4, 4, 3, 2)), name="rgb_stack")
+        fake = self.use(monkeypatch, FakeCv2())
+
+        store.play("rgb_stack", is_framestacked=True, overlay=False)
+
+        stack = np.asarray(store.load("rgb_stack").get_state(0))
+        shown = fake.shown[0]
+
+        assert shown.shape == (4, 4 * 2 + trajectory_store.TILE_SEPARATOR, 3)
+
+        for position, tile in enumerate(self.tiles(shown, count=2, width=4)):
+            # Frames are stored RGB and handed to OpenCV as BGR.
+            assert np.array_equal(tile[:, :, ::-1], stack[:, :, :, position])
+
+    def test_stacking_is_opt_in(self, tmp_path, monkeypatch):
+        store = TrajectoryStore(tmp_path)
+        store.save(make_trajectory(steps=1, shape=(4, 4, 3)), name="stacked")
+        fake = self.use(monkeypatch, FakeCv2())
+
+        store.play("stacked")
+
+        # Without the flag the same episode is one RGB frame, exactly as before.
+        assert fake.shown[0].shape == (4, 4, 3)
+
+    def test_tiles_are_labelled_with_their_age(self, tmp_path, monkeypatch):
+        store = TrajectoryStore(tmp_path)
+        store.save(make_trajectory(steps=1, shape=(4, 4, 3)), name="stacked")
+        fake = self.use(monkeypatch, FakeCv2())
+
+        store.play("stacked", is_framestacked=True, overlay=True)
+        drawn = list(fake.texts)
+
+        fake.texts.clear()
+        store.play("stacked", is_framestacked=True, overlay=False)
+
+        # Every label is drawn twice, as light text over its own dark outline.
+        labels = [text for text in drawn if text == "t" or text.startswith("t-")]
+
+        assert fake.texts == []
+        assert labels == ["t-2", "t-2", "t-1", "t-1", "t", "t"]
+
+    def test_float_observations_are_shown_as_uint8(self, tmp_path, monkeypatch):
+        store = TrajectoryStore(tmp_path)
+        trajectory = Trajectory()
+        state = np.zeros((4, 4, 2), dtype=np.float32)
+        state[..., 1] = 1.0
+        trajectory.record_step(state=state, action=0, reward=None, timestamp=0.0)
+        store.save(trajectory, name="normalized")
+        fake = self.use(monkeypatch, FakeCv2())
+
+        store.play("normalized", is_framestacked=True, overlay=False)
+
+        shown = fake.shown[0]
+        oldest, newest = self.tiles(shown, count=2, width=4)
+
+        assert shown.dtype == np.uint8
+        assert np.array_equal(oldest, np.zeros_like(oldest))
+        assert np.array_equal(newest, np.full_like(newest, 255))
+
+    def test_rejects_an_observation_that_cannot_be_a_stack(self, tmp_path, monkeypatch):
+        store = TrajectoryStore(tmp_path)
+        store.save(make_trajectory(steps=1, shape=(4, 4)), name="flat")
+        self.use(monkeypatch, FakeCv2())
+
+        with pytest.raises(ValueError, match=r"\(H, W, S\)"):
+            store.play("flat", is_framestacked=True)
+
+
 class TestFrameDelays:
     def test_follows_recorded_timestamps(self):
         delays = frame_delays([0.0, 0.1, 0.5, 0.6])

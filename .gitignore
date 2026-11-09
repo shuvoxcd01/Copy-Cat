@@ -219,3 +219,9 @@ __marimo__/
 .streamlit/secrets.toml
 
 recordings/
+
+# Pytorch files
+*.pt
+
+# MacOS
+.DS_Store
