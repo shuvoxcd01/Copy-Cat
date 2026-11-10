@@ -3,8 +3,8 @@ import logging
 from tqdm import trange
 
 from copy_cat.policies.base_policy import BasePolicy
-from copy_cat.utils.simple_replay_buffer import SimpleReplayBuffer
-from copy_cat.utils.trajectory import Trajectory
+from copy_cat.data.replay_buffer import SimpleReplayBuffer
+from copy_cat.data.trajectory import Trajectory
 from typing import List, Optional
 import numpy as np
 import torch

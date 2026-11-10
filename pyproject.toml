@@ -18,13 +18,19 @@ dependencies = [
 
 [project.optional-dependencies]
 replay = ["opencv-python"]
-test = ["pytest", "pytest-cov"]
+train = ["torch", "tqdm", "gymnasium"]
+test = ["pytest", "pytest-cov", "torch"]
+examples = ["copy-cat[replay,train]"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
+markers = [
+    "integration: combines several modules, e.g. a preprocessor with a TrajectoryStore on disk",
+]
 addopts = "-ra --strict-markers"
 xfail_strict = true
 

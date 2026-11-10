@@ -3,15 +3,13 @@ from functools import partial
 import numpy as np
 import pytest
 
-from copy_cat.storage.trajectory_store import TrajectoryStore
-from copy_cat.utils import observation_preprocessor
-from copy_cat.utils.observation_preprocessor import (
+from copy_cat.preprocessing import observation_preprocessor
+from copy_cat.preprocessing.observation_preprocessor import (
     GRAYSCALE_WEIGHTS,
     IMAGENET_MEAN,
     IMAGENET_STD,
     ObservationPreprocessor,
 )
-from copy_cat.utils.trajectory import Trajectory
 
 OP = ObservationPreprocessor
 
@@ -810,49 +808,3 @@ class TestBatch:
         assert observations.shape == (6, 8, 8, 4)
         assert observations.dtype == np.float32
         assert observations.max() <= 1.0
-
-
-class TestStorageRoundTrip:
-    def test_a_preprocessed_episode_still_saves_and_loads(self, tmp_path):
-        pipeline = OP.compose(OP.to_grayscale, partial(OP.downsample, factor=2))
-        trajectory = Trajectory()
-
-        for step in range(3):
-            trajectory.record_step(
-                state=pipeline(make_frame(shape=(16, 16, 3), seed=step)),
-                action=step,
-                reward=None,
-                timestamp=round(step * 0.1, 3),
-            )
-
-        store = TrajectoryStore(tmp_path)
-        name = store.save(trajectory, fps=10)
-        loaded = store.load(name)
-
-        assert store.info(name)["obs_shape"] == [8, 8]
-        assert store.info(name)["obs_dtype"] == "uint8"
-
-        for step in range(3):
-            assert np.array_equal(loaded.get_state(step), trajectory.get_state(step))
-
-    def test_a_pipeline_runs_over_read_only_memmapped_frames(self, tmp_path):
-        trajectory = Trajectory()
-
-        for step in range(3):
-            trajectory.record_step(
-                state=make_frame(shape=(16, 16, 3), seed=step),
-                action=step,
-                reward=None,
-            )
-
-        store = TrajectoryStore(tmp_path)
-        name = store.save(trajectory)
-        loaded = store.load(name, mmap=True)
-
-        stored = loaded.get_state(0)
-
-        assert not stored.flags.writeable
-
-        pipeline = OP.compose(OP.to_grayscale, partial(OP.downsample, factor=2), OP.normalize)
-
-        assert pipeline(stored).shape == (8, 8)

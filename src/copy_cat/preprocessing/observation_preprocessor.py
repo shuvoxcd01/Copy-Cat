@@ -38,7 +38,7 @@ class ObservationPreprocessor:
     compose:
 
         from functools import partial
-        from copy_cat.utils.observation_preprocessor import ObservationPreprocessor as OP
+        from copy_cat.preprocessing.observation_preprocessor import ObservationPreprocessor as OP
 
         pipeline = OP.compose(
             OP.to_grayscale,
