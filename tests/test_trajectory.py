@@ -1,6 +1,6 @@
 import pytest
 
-from copy_cat.utils.trajectory import Trajectory
+from copy_cat.data.trajectory import Trajectory
 
 
 @pytest.fixture

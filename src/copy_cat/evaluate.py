@@ -36,13 +36,13 @@ from copy_cat.observation_capture.screen_observation_capture import (
 )
 from copy_cat.policies.base_policy import BasePolicy
 from copy_cat.storage.trajectory_store import TrajectoryStore
-from copy_cat.utils.action_preprocessor import (
+from copy_cat.preprocessing.action_preprocessor import (
     ActionPreprocessor,
     NOOP_ACTION,
     num_actions_from_names,
 )
 from copy_cat.utils.key_names import key_lookups, normalize_key_name
-from copy_cat.utils.observation_preprocessor import ObservationPreprocessor
+from copy_cat.preprocessing.observation_preprocessor import ObservationPreprocessor
 
 import warnings
 

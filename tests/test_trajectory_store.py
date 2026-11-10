@@ -14,7 +14,7 @@ from copy_cat.storage.trajectory_store import (
     TrajectoryStore,
     frame_delays,
 )
-from copy_cat.utils.trajectory import Trajectory
+from copy_cat.data.trajectory import Trajectory
 
 
 def make_trajectory(steps=3, shape=(4, 4, 3), action_names=("w", "a", "s")):

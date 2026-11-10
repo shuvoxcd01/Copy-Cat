@@ -4,14 +4,14 @@ import numpy as np
 import pytest
 
 from copy_cat.storage.trajectory_store import TrajectoryStore
-from copy_cat.utils import observation_preprocessor
-from copy_cat.utils.observation_preprocessor import (
+from copy_cat.preprocessing import observation_preprocessor
+from copy_cat.preprocessing.observation_preprocessor import (
     GRAYSCALE_WEIGHTS,
     IMAGENET_MEAN,
     IMAGENET_STD,
     ObservationPreprocessor,
 )
-from copy_cat.utils.trajectory import Trajectory
+from copy_cat.data.trajectory import Trajectory
 
 OP = ObservationPreprocessor
 

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from copy_cat.storage.trajectory_store import TrajectoryStore
-from copy_cat.utils.action_preprocessor import (
+from copy_cat.preprocessing.action_preprocessor import (
     ENCODING_DTYPE,
     INDEX_DTYPE,
     NOOP_ACTION,
@@ -13,7 +13,7 @@ from copy_cat.utils.action_preprocessor import (
     mapping_from_names,
     num_actions_from_names,
 )
-from copy_cat.utils.trajectory import Trajectory
+from copy_cat.data.trajectory import Trajectory
 
 AP = ActionPreprocessor
 

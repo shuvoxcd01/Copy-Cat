@@ -6,7 +6,7 @@ from pynput import keyboard
 from copy_cat.action_capture.action_capture import ActionCapture
 from copy_cat.observation_capture.observation_capture import ObservationCapture
 from copy_cat.utils.key_names import key_lookups, normalize_key_name
-from copy_cat.utils.trajectory import Trajectory
+from copy_cat.data.trajectory import Trajectory
 
 
 class DemonstrationRecorder:

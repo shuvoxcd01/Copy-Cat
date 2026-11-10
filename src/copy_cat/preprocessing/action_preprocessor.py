@@ -60,7 +60,7 @@ class ActionPreprocessor:
     compose:
 
         from functools import partial
-        from copy_cat.utils.action_preprocessor import ActionPreprocessor as AP
+        from copy_cat.preprocessing.action_preprocessor import ActionPreprocessor as AP
 
         pipeline = AP.compose(
             partial(AP.hold, max_hold=3),

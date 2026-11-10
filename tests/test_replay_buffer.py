@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from copy_cat.utils.simple_replay_buffer import SimpleReplayBuffer
+from copy_cat.data.replay_buffer import SimpleReplayBuffer
 
 
 def fill(buffer, count, start=0):

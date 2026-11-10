@@ -6,7 +6,7 @@ from copy_cat.imitation_learning.discrete_action_imitation_learning import Discr
 
 from copy_cat.policies.parameterized.discrete_action_cnn_policy import DiscreteActionCNNPolicy
 from copy_cat.storage.trajectory_store import TrajectoryStore
-from copy_cat.utils.action_preprocessor import (
+from copy_cat.preprocessing.action_preprocessor import (
     num_actions_from_names,
 )
 import logging

@@ -8,8 +8,8 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence, Union
 
 import numpy as np
 
-from copy_cat.utils.observation_preprocessor import ObservationPreprocessor
-from copy_cat.utils.trajectory import Trajectory
+from copy_cat.preprocessing.observation_preprocessor import ObservationPreprocessor
+from copy_cat.data.trajectory import Trajectory
 
 META_FILE = "meta.json"
 STEPS_FILE = "steps.jsonl"
