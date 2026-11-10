@@ -27,6 +27,10 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
+markers = [
+    "integration: combines several modules, e.g. a preprocessor with a TrajectoryStore on disk",
+]
 addopts = "-ra --strict-markers"
 xfail_strict = true
 
