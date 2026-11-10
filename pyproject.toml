@@ -18,7 +18,9 @@ dependencies = [
 
 [project.optional-dependencies]
 replay = ["opencv-python"]
-test = ["pytest", "pytest-cov"]
+train = ["torch", "tqdm", "gymnasium"]
+test = ["pytest", "pytest-cov", "torch"]
+examples = ["copy-cat[replay,train]"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
