@@ -57,6 +57,25 @@ class FakeListener:
         self.release(key)
 
 
+class FakeController:
+    """Stands in for pynput.keyboard.Controller without posting real keystrokes.
+
+    Every press and release is logged in order as ("press", key) or ("release", key).
+    """
+
+    instances = []
+
+    def __init__(self):
+        self.events = []
+        FakeController.instances.append(self)
+
+    def press(self, key):
+        self.events.append(("press", key))
+
+    def release(self, key):
+        self.events.append(("release", key))
+
+
 def char(value):
     """Return a pynput event for a printable key."""
     return keyboard.KeyCode.from_char(value)

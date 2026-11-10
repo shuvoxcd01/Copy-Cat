@@ -3,7 +3,7 @@
 import pytest
 from pynput import keyboard
 
-from fakes import FakeClock, FakeListener
+from fakes import FakeClock, FakeController, FakeListener
 
 
 @pytest.fixture
@@ -16,6 +16,15 @@ def fake_listener(monkeypatch):
     yield FakeListener
 
     FakeListener.on_start = None
+
+
+@pytest.fixture
+def fake_controller(monkeypatch):
+    """Replace pynput's Controller so no test types into the real keyboard."""
+    FakeController.instances = []
+    monkeypatch.setattr(keyboard, "Controller", FakeController)
+
+    return FakeController
 
 
 @pytest.fixture
